@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import React, { useMemo, useState } from "react";
 import {
   defaultCategories,
   defaultSettings,
@@ -31,14 +31,31 @@ const navItems = [
 
 function useLocalState(key, initialValue) {
   const [value, setValue] = useState(() => {
-    const stored = localStorage.getItem(key);
-    return stored ? JSON.parse(stored) : initialValue;
+    try {
+      const stored = localStorage.getItem(key);
+      if (!stored) return initialValue;
+
+      const parsed = JSON.parse(stored);
+      if (Array.isArray(initialValue)) return Array.isArray(parsed) ? parsed : initialValue;
+      if (initialValue && typeof initialValue === "object") {
+        return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? { ...initialValue, ...parsed } : initialValue;
+      }
+
+      return parsed ?? initialValue;
+    } catch {
+      localStorage.removeItem(key);
+      return initialValue;
+    }
   });
 
   const update = (nextValue) => {
     const resolved = typeof nextValue === "function" ? nextValue(value) : nextValue;
     setValue(resolved);
-    localStorage.setItem(key, JSON.stringify(resolved));
+    try {
+      localStorage.setItem(key, JSON.stringify(resolved));
+    } catch {
+      // The UI should keep working even if browser storage is unavailable.
+    }
   };
 
   return [value, update];
