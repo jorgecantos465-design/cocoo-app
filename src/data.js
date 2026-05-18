@@ -15,6 +15,8 @@ export const defaultCategories = [
 export const defaultSettings = {
   selectedMonth: "2026-05",
   exchangeRate: 1100,
+  exchangeRateSource: "manual",
+  exchangeRateUpdatedAt: "",
   mainCurrency: "ARS",
   financialGoal: "ordenar"
 };

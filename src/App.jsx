@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import {
   defaultCategories,
   defaultSettings,
@@ -28,6 +28,13 @@ const navItems = [
   { id: "charts", label: "Graficos" },
   { id: "diagnosis", label: "Diagnostico" }
 ];
+
+const exchangeRateOptions = {
+  blue: { label: "Blue", url: "https://dolarapi.com/v1/dolares/blue" },
+  mep: { label: "MEP", url: "https://dolarapi.com/v1/dolares/bolsa" },
+  oficial: { label: "Oficial", url: "https://dolarapi.com/v1/dolares/oficial" },
+  manual: { label: "Manual" }
+};
 
 function useLocalState(key, initialValue) {
   const [value, setValue] = useState(() => {
@@ -160,7 +167,63 @@ function Dashboard({ summary, settings }) {
 }
 
 function SettingsPanel({ settings, setSettings }) {
+  const [exchangeStatus, setExchangeStatus] = useState({ loading: false, error: "" });
   const update = (field, value) => setSettings({ ...settings, [field]: value });
+  const exchangeRateSource = settings.exchangeRateSource || "manual";
+
+  const updateExchangeRateFromApi = async (source) => {
+    const option = exchangeRateOptions[source];
+    if (!option?.url) return;
+
+    setExchangeStatus({ loading: true, error: "" });
+    try {
+      const response = await fetch(option.url);
+      if (!response.ok) throw new Error("Exchange rate request failed");
+
+      const data = await response.json();
+      const rate = Number(data.venta ?? data.sell ?? data.value);
+      if (!Number.isFinite(rate) || rate <= 0) throw new Error("Exchange rate response is invalid");
+
+      setSettings((currentSettings) => ({
+        ...currentSettings,
+        exchangeRateSource: source,
+        exchangeRate: rate,
+        exchangeRateUpdatedAt: data.fechaActualizacion || new Date().toISOString()
+      }));
+      setExchangeStatus({ loading: false, error: "" });
+    } catch {
+      setExchangeStatus({
+        loading: false,
+        error: "No se pudo actualizar el tipo de cambio. Se mantiene el valor actual."
+      });
+    }
+  };
+
+  useEffect(() => {
+    if (exchangeRateSource === "manual") return;
+    updateExchangeRateFromApi(exchangeRateSource);
+  }, [exchangeRateSource]);
+
+  const handleExchangeSourceChange = (source) => {
+    setExchangeStatus({ loading: false, error: "" });
+    if (source === "manual") {
+      setSettings((currentSettings) => ({ ...currentSettings, exchangeRateSource: source, exchangeRateUpdatedAt: "" }));
+      return;
+    }
+    setSettings((currentSettings) => ({ ...currentSettings, exchangeRateSource: source }));
+  };
+
+  const handleExchangeRateChange = (value) => {
+    update("exchangeRate", Number(value));
+  };
+
+  const exchangeDate = settings.exchangeRateUpdatedAt ? new Date(settings.exchangeRateUpdatedAt) : null;
+  const formattedExchangeDate = exchangeDate && Number.isFinite(exchangeDate.getTime())
+    ? new Intl.DateTimeFormat("es-AR", {
+        dateStyle: "short",
+        timeStyle: "short"
+      }).format(exchangeDate)
+    : "Sin datos";
 
   return (
     <section className="space-y-6">
@@ -170,9 +233,29 @@ function SettingsPanel({ settings, setSettings }) {
           <Field label="Mes de analisis">
             <input className="input" type="month" value={settings.selectedMonth} onChange={(event) => update("selectedMonth", event.target.value)} />
           </Field>
-          <Field label="Tipo de cambio USD/ARS">
-            <input className="input" type="number" min="1" value={settings.exchangeRate} onChange={(event) => update("exchangeRate", Number(event.target.value))} />
-          </Field>
+          <div className="grid gap-3">
+            <Field label="Tipo de cambio">
+              <select className="input" value={exchangeRateSource} onChange={(event) => handleExchangeSourceChange(event.target.value)}>
+                {Object.entries(exchangeRateOptions).map(([value, option]) => (
+                  <option key={value} value={value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </Field>
+            <Field label="Tipo de cambio USD/ARS">
+              <input className="input" type="number" min="1" step="0.01" value={settings.exchangeRate} onChange={(event) => handleExchangeRateChange(event.target.value)} />
+            </Field>
+            <div className="space-y-2 text-sm text-black/60">
+              <p>Fuente: {exchangeRateSource === "manual" ? "Manual" : "DolarAPI"}</p>
+              <p>Tipo usado: {exchangeRateOptions[exchangeRateSource]?.label || "Manual"}</p>
+              <p>Ultima actualizacion: {formattedExchangeDate}</p>
+              {exchangeStatus.error && <p className="text-red-700">{exchangeStatus.error}</p>}
+            </div>
+            <button className="secondary-button justify-self-start" type="button" onClick={() => updateExchangeRateFromApi(exchangeRateSource)} disabled={exchangeStatus.loading}>
+              {exchangeStatus.loading ? "Actualizando..." : "Actualizar tipo de cambio"}
+            </button>
+          </div>
           <Field label="Moneda principal">
             <select className="input" value={settings.mainCurrency} onChange={(event) => update("mainCurrency", event.target.value)}>
               <option value="ARS">ARS</option>
